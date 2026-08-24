@@ -294,18 +294,8 @@ class OmgeeDriveExtension(
 
         stubs = [pair for pair in selected if _stub(pair[1])]
         rest = [pair for pair in selected if pair not in stubs]
-        items = []
-
-        if stubs:
-            item = Nautilus.MenuItem(
-                name="OmgeeDrive::open",
-                label="Open in browser"
-                if len(stubs) == 1
-                else f"Open {len(stubs)} shortcuts in browser",
-                icon="web-browser",
-            )
-            item.connect("activate", self._on_open, stubs)
-            items.append(item)
+        children = []
+        icon = "omgee-drive"
 
         pinned = []
         unpinned = []
@@ -324,38 +314,16 @@ class OmgeeDriveExtension(
             else:
                 unpinned.append(pair)
 
-        if watchable:
-            item = Nautilus.MenuItem(
-                name="OmgeeDrive::ignore",
-                label="Ignore"
-                if len(watchable) == 1
-                else f"Ignore {len(watchable)} items",
-                icon="list-remove",
-            )
-            item.connect("activate", self._on_ignore, watchable)
-            items.append(item)
-
-        if ignored:
-            item = Nautilus.MenuItem(
-                name="OmgeeDrive::unignore",
-                label="Stop ignoring"
-                if len(ignored) == 1
-                else f"Stop ignoring {len(ignored)} items",
-                icon="list-add",
-            )
-            item.connect("activate", self._on_unignore, ignored)
-            items.append(item)
-
         if unpinned:
             item = Nautilus.MenuItem(
                 name="OmgeeDrive::pin",
                 label="Make available offline"
                 if len(unpinned) == 1
                 else f"Make {len(unpinned)} items available offline",
-                icon="folder-download",
+                icon=icon,
             )
             item.connect("activate", self._on_pin, unpinned)
-            items.append(item)
+            children.append(item)
 
         if pinned:
             item = Nautilus.MenuItem(
@@ -363,12 +331,57 @@ class OmgeeDriveExtension(
                 label="Free up space"
                 if len(pinned) == 1
                 else f"Free space for {len(pinned)} items",
-                icon="folder-remote",
+                icon=icon,
             )
             item.connect("activate", self._on_unpin, pinned)
-            items.append(item)
+            children.append(item)
 
-        return items
+        if watchable:
+            item = Nautilus.MenuItem(
+                name="OmgeeDrive::ignore",
+                label="Ignore"
+                if len(watchable) == 1
+                else f"Ignore {len(watchable)} items",
+                icon=icon,
+            )
+            item.connect("activate", self._on_ignore, watchable)
+            children.append(item)
+
+        if ignored:
+            item = Nautilus.MenuItem(
+                name="OmgeeDrive::unignore",
+                label="Stop ignoring"
+                if len(ignored) == 1
+                else f"Stop ignoring {len(ignored)} items",
+                icon=icon,
+            )
+            item.connect("activate", self._on_unignore, ignored)
+            children.append(item)
+
+        if stubs:
+            item = Nautilus.MenuItem(
+                name="OmgeeDrive::open",
+                label="Open in browser"
+                if len(stubs) == 1
+                else f"Open {len(stubs)} shortcuts in browser",
+                icon=icon,
+            )
+            item.connect("activate", self._on_open, stubs)
+            children.append(item)
+
+        if not children:
+            return []
+
+        submenu = Nautilus.Menu()
+        for child in children:
+            submenu.append_item(child)
+        parent = Nautilus.MenuItem(
+            name="OmgeeDrive::root",
+            label="OMGee Drive",
+            icon=icon,
+        )
+        parent.set_submenu(submenu)
+        return [parent]
 
     def _on_pin(self, _menu, pairs):
         self._run("pin", pairs)

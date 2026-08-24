@@ -11,9 +11,11 @@ APPS_DIR="${HOME}/.local/share/applications"
 SYSTEMD_DIR="${HOME}/.config/systemd/user"
 EMBLEM_DIR="${HOME}/.local/share/icons/hicolor/scalable/emblems"
 
+APP_ICON_DIR="${HOME}/.local/share/icons/hicolor/scalable/apps"
 mkdir -p "$BIN_DIR" "$NAUTILUS_DIR" "$MIME_DIR" "$APPS_DIR" "$SYSTEMD_DIR" \
-  "$EMBLEM_DIR" \
+  "$EMBLEM_DIR" "$APP_ICON_DIR" \
   "${HOME}/.local/share/icons/hicolor/16x16/emblems" \
+  "${HOME}/.local/share/icons/hicolor/16x16/apps" \
   "${HOME}/.config/omgee-drive" \
   "${HOME}/.local/share/omgee-drive/local" \
   "${HOME}/.cache/omgee-drive"
@@ -38,6 +40,9 @@ for emblem in "$REPO"/icons/emblem-omgee-*.svg; do
   # Nautilus 43+ sometimes looks up the -symbolic name for overlays.
   ln -sfn "$emblem" "$EMBLEM_DIR/${base%.svg}-symbolic.svg"
 done
+ln -sfn "$REPO/icons/omgee-drive.svg" "$APP_ICON_DIR/omgee-drive.svg"
+ln -sfn "$REPO/icons/omgee-drive.svg" "${HOME}/.local/share/icons/hicolor/16x16/apps/omgee-drive.svg"
+ln -sfn "$REPO/icons/omgee-drive.svg" "$APP_ICON_DIR/omgee-drive-symbolic.svg"
 if command -v gtk-update-icon-cache >/dev/null; then
   gtk-update-icon-cache -f -t "${HOME}/.local/share/icons/hicolor" >/dev/null 2>&1 || true
 fi
