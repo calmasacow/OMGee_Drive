@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import fnmatch
 import json
 import shutil
 import sys
+import time
 from pathlib import Path
+from urllib.parse import unquote, urlparse
 
 from gi import require_version
 
@@ -54,29 +57,36 @@ STUB_SUFFIXES = {
 }
 
 
+_MOUNT: Path | None = None
+_SNAP: dict = {"t": 0.0}
+
+
 def _mount_point() -> Path:
+    global _MOUNT
+    if _MOUNT is not None:
+        return _MOUNT
     conf = Path.home() / ".config" / "omgee-drive" / "config.json"
+    mount = Path.home() / "GoogleDrive"
     if conf.exists():
         try:
             data = json.loads(conf.read_text(encoding="utf-8"))
-            return Path(data.get("mount_point") or Path.home() / "GoogleDrive").expanduser()
+            mount = Path(data.get("mount_point") or mount).expanduser()
         except json.JSONDecodeError:
             pass
-    return Path.home() / "GoogleDrive"
+    _MOUNT = mount
+    return _MOUNT
 
 
 def _rel(path: Path, mount: Path) -> str | None:
-    try:
-        rel = path.relative_to(mount)
-    except ValueError:
-        try:
-            rel = path.resolve().relative_to(mount.resolve())
-        except ValueError:
-            return None
-    text = str(rel).replace("\\", "/")
-    if text in (".", ""):
+    # String prefix only — never Path.resolve() on the rclone FUSE mount.
+    p = str(path)
+    m = str(mount).rstrip("/")
+    if p == m:
         return None
-    return text
+    prefix = m + "/"
+    if p.startswith(prefix):
+        return p[len(prefix) :]
+    return None
 
 
 def _stub(path: Path) -> bool:
@@ -117,72 +127,102 @@ def _read_json(path: Path, fallback):
 
 def _covered(rel: str, items) -> bool:
     rel = (rel or "").strip("/")
-    bag = {str(x).strip("/") for x in items}
-    if rel in bag:
-        return True
-    parts = rel.split("/")
-    for i in range(1, len(parts)):
-        if "/".join(parts[:i]) in bag:
+    if not rel:
+        return False
+    bag = items if isinstance(items, set) else set(items)
+    cur = rel
+    while True:
+        if cur in bag:
             return True
-    return False
+        if "/" not in cur:
+            return False
+        cur = cur.rsplit("/", 1)[0]
+
+
+def _snapshot() -> dict:
+    now = time.monotonic()
+    if now - float(_SNAP.get("t") or 0) < 1.0 and "pins" in _SNAP:
+        return _SNAP
+    home = Path.home()
+    pins = _read_json(home / ".local" / "share" / "omgee-drive" / "pins.json", {})
+    data = _read_json(home / ".local" / "share" / "omgee-drive" / "status.json", {})
+    patterns: list[str] = []
+    ignore_file = home / ".config" / "omgee-drive" / "ignore"
+    if ignore_file.exists():
+        try:
+            for line in ignore_file.read_text(encoding="utf-8").splitlines():
+                line = line.strip()
+                if line and not line.startswith("#"):
+                    patterns.append(line)
+        except OSError:
+            pass
+    _SNAP.update(
+        {
+            "t": now,
+            "pins": {str(p).strip("/") for p in pins.get("paths") or []},
+            "syncing": set(data.get("syncing") or []),
+            "errors": set(data.get("errors") or {}),
+            "conflicts": set(data.get("conflicts") or {}),
+            "ignored": set(data.get("ignored") or []),
+            "shared": set(data.get("shared") or []),
+            "offline": bool(data.get("offline")),
+            "globs": patterns,
+        }
+    )
+    return _SNAP
 
 
 def _pins() -> set[str]:
-    data = _read_json(Path.home() / ".local" / "share" / "omgee-drive" / "pins.json", {})
-    return {str(p).strip("/") for p in data.get("paths") or []}
+    return _snapshot()["pins"]
 
 
 def _status_blob() -> dict:
-    data = _read_json(Path.home() / ".local" / "share" / "omgee-drive" / "status.json", {})
+    snap = _snapshot()
     return {
-        "syncing": list(data.get("syncing") or []),
-        "errors": dict(data.get("errors") or {}),
-        "conflicts": dict(data.get("conflicts") or {}),
-        "ignored": list(data.get("ignored") or []),
-        "shared": list(data.get("shared") or []),
-        "offline": bool(data.get("offline")),
+        "syncing": snap["syncing"],
+        "errors": {k: True for k in snap["errors"]},
+        "conflicts": {k: True for k in snap["conflicts"]},
+        "ignored": snap["ignored"],
+        "shared": snap["shared"],
+        "offline": snap["offline"],
     }
 
 
 def _ignored(rel: str) -> bool:
-    if _is_ignored is not None:
-        try:
-            return _is_ignored(rel)
-        except Exception:
-            pass
-    return _covered(rel, _status_blob()["ignored"])
+    snap = _snapshot()
+    if _covered(rel, snap["ignored"]):
+        return True
+    name = rel.split("/")[-1] if rel else ""
+    for pat in snap.get("globs") or []:
+        if fnmatch.fnmatch(rel, pat) or fnmatch.fnmatch(name, pat):
+            return True
+    return False
 
 
 def _local_status(rel: str, path: Path) -> str:
-    blob = _status_blob()
+    snap = _snapshot()
     if _ignored(rel):
         return "ignored"
-    if rel in blob["errors"] or _covered(rel, blob["errors"].keys()):
+    if _covered(rel, snap["errors"]):
         return "error"
-    if rel in blob["conflicts"] or _covered(rel, blob["conflicts"].keys()):
+    if _covered(rel, snap["conflicts"]):
         return "conflict"
     if _stub(path):
-        return "paused" if blob["offline"] else "web"
-    if _covered(rel, blob["syncing"]):
-        return "paused" if blob["offline"] else "sync"
-    if _covered(rel, _pins()):
+        return "paused" if snap["offline"] else "web"
+    if _covered(rel, snap["syncing"]):
+        return "paused" if snap["offline"] else "sync"
+    if _covered(rel, snap["pins"]):
         return "ok"
-    if blob["offline"]:
+    if snap["offline"]:
         return "paused"
     return "cloud"
 
 
 def _emblems(rel: str, path: Path) -> list[str]:
-    if emblems_for is not None:
-        try:
-            return emblems_for(rel, path)
-        except Exception:
-            pass
-    names = [EMBLEMS[_local_status(rel, path)]]
-    blob = _status_blob()
-    if _local_status(rel, path) not in ("ignored", "paused") and _covered(
-        rel, blob["shared"]
-    ):
+    # Local snapshot only — do not call into omgee_drive on the FUSE hot path.
+    key = _local_status(rel, path)
+    names = [EMBLEMS[key]]
+    if key not in ("ignored", "paused") and _covered(rel, _snapshot()["shared"]):
         names.append(EMBLEMS["shared"])
     return names
 
@@ -219,10 +259,10 @@ class OmgeeDriveExtension(
         mount = _mount_point()
         paths = []
         for file in files:
-            location = file.get_location()
-            if not location:
+            uri = file.get_uri() or ""
+            if not uri.startswith("file:"):
                 continue
-            raw = location.get_path()
+            raw = unquote(urlparse(uri).path)
             if not raw:
                 continue
             p = Path(raw)
@@ -266,10 +306,10 @@ class OmgeeDriveExtension(
         ]
 
     def update_file_info(self, file, *args):
-        location = file.get_location()
-        if not location:
+        uri = file.get_uri() or ""
+        if not uri.startswith("file:"):
             return Nautilus.OperationResult.COMPLETE
-        raw = location.get_path()
+        raw = unquote(urlparse(uri).path)
         if not raw:
             return Nautilus.OperationResult.COMPLETE
         path = Path(raw)

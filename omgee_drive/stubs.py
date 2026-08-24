@@ -76,32 +76,27 @@ def _item_shared(item: dict) -> bool:
     return len(perms) > 1 or bool(extras)
 
 
-def refresh() -> tuple[int, int]:
-    """Create/update stubs and refresh shared metadata."""
+def refresh(*, with_sharing: bool = False) -> tuple[int, int]:
+    """Create/update stubs. Sharing metadata is an optional extra Drive API pass."""
     ensure_dirs()
     try:
-        items = rclone.lsjson(
-            f"{REMOTE_DRIVE}:",
-            extra=[
-                "--drive-skip-gdocs=false",
-                "--drive-show-all-gdocs",
-                "--metadata",
-                "--drive-metadata-permissions=read",
-            ],
-        )
+        extra = ["--drive-skip-gdocs=false", "--drive-show-all-gdocs"]
+        if with_sharing:
+            extra += ["--metadata", "--drive-metadata-permissions=read"]
+        items = rclone.lsjson(f"{REMOTE_DRIVE}:", extra=extra)
         st.set_offline(False)
     except rclone.RcloneError:
         st.set_offline(True)
         return 0, 0
 
-    keep: set[Path] = set()
+    keep: set[str] = set()
     written = 0
     shared: list[str] = []
     for item in items:
         path = (item.get("Path") or "").strip("/")
         stub = stub_relpath(item)
         catalog = stub or path
-        if catalog and _item_shared(item):
+        if with_sharing and catalog and _item_shared(item):
             shared.append(catalog)
         mime = item.get("MimeType") or ""
         if not mime.startswith("application/vnd.google-apps."):
@@ -110,10 +105,11 @@ def refresh() -> tuple[int, int]:
             continue
         dest = write_stub(item)
         if dest:
-            keep.add(dest.resolve())
+            keep.add(str(dest.relative_to(LOCAL_DIR)))
             written += 1
 
-    st.set_shared(shared)
+    if with_sharing:
+        st.set_shared(shared)
 
     removed = 0
     if LOCAL_DIR.exists():
@@ -122,7 +118,8 @@ def refresh() -> tuple[int, int]:
                 continue
             if path.suffix.lower() not in STUB_SUFFIXES:
                 continue
-            if path.resolve() not in keep:
+            rel = str(path.relative_to(LOCAL_DIR))
+            if rel not in keep:
                 path.unlink()
                 removed += 1
     return written, removed

@@ -142,14 +142,16 @@ def is_pinned_rel(rel: str) -> bool:
 
 def _covered(rel: str, items: list[str] | set[str]) -> bool:
     rel = (rel or "").strip("/")
-    bag = {str(x).strip("/") for x in items}
-    if rel in bag:
-        return True
-    parts = rel.split("/")
-    for i in range(1, len(parts)):
-        if "/".join(parts[:i]) in bag:
+    if not rel:
+        return False
+    bag = items if isinstance(items, set) else {str(x).strip("/") for x in items}
+    cur = rel
+    while True:
+        if cur in bag:
             return True
-    return False
+        if "/" not in cur:
+            return False
+        cur = cur.rsplit("/", 1)[0]
 
 
 def is_ignored(rel: str) -> bool:
@@ -244,18 +246,19 @@ def clear_rel(rel: str) -> None:
 def status_for(rel: str, path: Path | None = None) -> str:
     """Primary badge: ignored | error | conflict | paused | sync | web | ok | cloud."""
     rel = (rel or "").strip("/")
-    if is_ignored(rel):
-        return "ignored"
     data = load()
-    if rel in data["errors"] or _covered(rel, data["errors"].keys()):
+    ignored = set(data["ignored"])
+    if _covered(rel, ignored) or is_ignored(rel):
+        return "ignored"
+    errors = set(data["errors"])
+    if _covered(rel, errors):
         return "error"
-    if rel in data["conflicts"] or _covered(rel, data["conflicts"].keys()):
+    conflicts = set(data["conflicts"])
+    if _covered(rel, conflicts):
         return "conflict"
     if path is not None and is_stub(path):
-        if data["offline"]:
-            return "paused"
-        return "web"
-    if _covered(rel, data["syncing"]):
+        return "paused" if data["offline"] else "web"
+    if _covered(rel, set(data["syncing"])):
         return "paused" if data["offline"] else "sync"
     if _covered(rel, load_pins()):
         return "ok"

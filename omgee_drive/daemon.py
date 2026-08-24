@@ -19,8 +19,10 @@ _stop = threading.Event()
 _mount_proc: subprocess.Popen[str] | None = None
 
 
-def _loop(name: str, interval: int, fn) -> None:
-    while not _stop.wait(0):
+def _loop(name: str, interval: int, fn, delay: int = 0) -> None:
+    if delay and _stop.wait(delay):
+        return
+    while not _stop.is_set():
         try:
             fn()
         except Exception as exc:  # noqa: BLE001 — daemon must stay up
@@ -66,10 +68,6 @@ def run() -> None:
     signal.signal(signal.SIGTERM, handle_stop)
     signal.signal(signal.SIGINT, handle_stop)
 
-    print("Refreshing Docs/Sheets shortcuts …")
-    written, removed = stubs.refresh()
-    print(f"Stubs: {written} current, {removed} removed")
-
     cmd = rclone.mount_cmd(f"{REMOTE_UNION}:", mount)
     print("Mounting", mount)
     _mount_proc = subprocess.Popen(cmd)
@@ -79,20 +77,37 @@ def run() -> None:
         args=("stubs", int(conf["stub_refresh_sec"]), stubs.refresh),
         daemon=True,
     )
-    pin_thread = threading.Thread(
+    share_thread = threading.Thread(
         target=_loop,
-        args=("pins", int(conf["pin_sync_sec"]), pins.sync_pins),
+        kwargs={
+            "name": "sharing",
+            "interval": max(int(conf["stub_refresh_sec"]) * 4, 1200),
+            "fn": lambda: stubs.refresh(with_sharing=True),
+            "delay": 45,
+        },
         daemon=True,
     )
+    pin_thread = threading.Thread(
+        target=_loop,
+        kwargs={
+            "name": "pins",
+            "interval": int(conf["pin_sync_sec"]),
+            "fn": pins.sync_pins,
+            "delay": 20,
+        },
+        daemon=True,
+    )
+
     def check_link():
         st.set_offline(not rclone.reachable(f"{REMOTE_DRIVE}:"))
 
     link_thread = threading.Thread(
         target=_loop,
-        args=("link", 60, check_link),
+        kwargs={"name": "link", "interval": 60, "fn": check_link, "delay": 5},
         daemon=True,
     )
     stub_thread.start()
+    share_thread.start()
     pin_thread.start()
     link_thread.start()
 
