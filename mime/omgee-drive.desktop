@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=OMGee Drive
+Comment=Open Google Docs/Sheets/Slides shortcuts in the browser
+Exec=omgee-drive open %f
+Icon=folder-remote
+Terminal=false
+NoDisplay=true
+MimeType=application/x-omgee-gdoc;application/x-omgee-gsheet;application/x-omgee-gslides;application/x-omgee-gform;application/x-omgee-gdraw;application/x-omgee-gshortcut;
+Categories=Network;FileTransfer;

@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mime-info xmlns="http://www.freedesktop.org/standards/shared-mime-info">
+  <mime-type type="application/x-omgee-gdoc">
+    <comment>Google Doc shortcut (OMGee Drive)</comment>
+    <glob pattern="*.gdoc"/>
+  </mime-type>
+  <mime-type type="application/x-omgee-gsheet">
+    <comment>Google Sheet shortcut (OMGee Drive)</comment>
+    <glob pattern="*.gsheet"/>
+  </mime-type>
+  <mime-type type="application/x-omgee-gslides">
+    <comment>Google Slides shortcut (OMGee Drive)</comment>
+    <glob pattern="*.gslides"/>
+  </mime-type>
+  <mime-type type="application/x-omgee-gform">
+    <comment>Google Form shortcut (OMGee Drive)</comment>
+    <glob pattern="*.gform"/>
+  </mime-type>
+  <mime-type type="application/x-omgee-gdraw">
+    <comment>Google Drawing shortcut (OMGee Drive)</comment>
+    <glob pattern="*.gdraw"/>
+  </mime-type>
+  <mime-type type="application/x-omgee-gshortcut">
+    <comment>Google Drive shortcut (OMGee Drive)</comment>
+    <glob pattern="*.gshortcut"/>
+  </mime-type>
+</mime-info>

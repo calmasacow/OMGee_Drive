@@ -1,0 +1,15 @@
+[Unit]
+Description=OMGee Drive — Google Drive folder
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=%h/.local/bin/omgee-drive daemon
+ExecStop=%h/.local/bin/omgee-drive unmount
+Restart=on-failure
+RestartSec=8
+TimeoutStopSec=25
+
+[Install]
+WantedBy=default.target
