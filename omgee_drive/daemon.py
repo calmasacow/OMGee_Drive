@@ -31,6 +31,14 @@ def _loop(name: str, interval: int, fn, delay: int = 0) -> None:
             break
 
 
+def _fusermount(mount: Path) -> None:
+    subprocess.run(
+        ["fusermount3", "-uz", str(mount)],
+        check=False,
+        capture_output=True,
+    )
+
+
 def _unmount(mount: Path) -> None:
     global _mount_proc
     if _mount_proc and _mount_proc.poll() is None:
@@ -40,11 +48,18 @@ def _unmount(mount: Path) -> None:
         except subprocess.TimeoutExpired:
             _mount_proc.kill()
     _mount_proc = None
-    subprocess.run(
-        ["fusermount3", "-u", str(mount)],
-        check=False,
-        capture_output=True,
-    )
+    _fusermount(mount)
+
+
+def _prepare_mountpoint(mount: Path) -> None:
+    """Clear a dead FUSE inode (ENOTCONN) so mkdir/mount can succeed."""
+    _fusermount(mount)
+    try:
+        if mount.exists() and mount.is_mount():
+            _fusermount(mount)
+    except OSError:
+        _fusermount(mount)
+    mount.mkdir(parents=True, exist_ok=True)
 
 
 def unmount() -> None:
@@ -59,7 +74,7 @@ def run() -> None:
     ensure_dirs()
     conf = cfg.load()
     mount = cfg.mount_point()
-    mount.mkdir(parents=True, exist_ok=True)
+    _prepare_mountpoint(mount)
 
     def handle_stop(_signum, _frame):
         _stop.set()
