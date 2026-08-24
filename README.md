@@ -53,7 +53,7 @@ Nautilus draws a small overlay on each item in `~/GoogleDrive`:
 
 Queued and transferring share the arrows. Shared stacks with check/cloud/error. List view has a **Drive** column with the same words.
 
-Right-click a file in `~/GoogleDrive` and look for the **OMGee Drive** submenu (triangle mark when the shell draws menu icons). Ignore globs also go in `~/.config/omgee-drive/ignore`. Conflict skips overwrite until you free space and pin again, or edit only one side.
+Right-click a file in `~/GoogleDrive` and look for **▲ OMGee Drive**. GNOME Files does not draw icons next to menu text, so the triangle is in the label. Ignore globs also go in `~/.config/omgee-drive/ignore`. Conflict skips overwrite until you free space and pin again, or edit only one side.
 
 ### Your own OAuth client (recommended)
 

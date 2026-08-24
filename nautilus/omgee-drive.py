@@ -245,6 +245,27 @@ def _pinned(rel: str) -> bool:
     return _covered(rel, _pins())
 
 
+# GTK4 / Nautilus popovers do not draw MenuItem icons next to labels.
+# The triangle lives in the text so the items stay recognizable anyway.
+_MENU_MARK = "▲"
+_MENU_ICON = str(
+    Path.home() / ".local" / "share" / "icons" / "hicolor" / "scalable" / "apps" / "omgee-drive.svg"
+)
+if not Path(_MENU_ICON).exists():
+    _MENU_ICON = "omgee-drive"
+
+
+def _menu_item(name: str, label: str, callback, payload) -> Nautilus.MenuItem:
+    item = Nautilus.MenuItem(
+        name=name,
+        label=f"{_MENU_MARK}  {label}",
+        tip=label,
+        icon=_MENU_ICON,
+    )
+    item.connect("activate", callback, payload)
+    return item
+
+
 class OmgeeDriveExtension(
     GObject.GObject, Nautilus.MenuProvider, Nautilus.InfoProvider, Nautilus.ColumnProvider
 ):
@@ -335,7 +356,6 @@ class OmgeeDriveExtension(
         stubs = [pair for pair in selected if _stub(pair[1])]
         rest = [pair for pair in selected if pair not in stubs]
         children = []
-        icon = "omgee-drive"
 
         pinned = []
         unpinned = []
@@ -355,59 +375,62 @@ class OmgeeDriveExtension(
                 unpinned.append(pair)
 
         if unpinned:
-            item = Nautilus.MenuItem(
-                name="OmgeeDrive::pin",
-                label="Make available offline"
-                if len(unpinned) == 1
-                else f"Make {len(unpinned)} items available offline",
-                icon=icon,
+            children.append(
+                _menu_item(
+                    "OmgeeDrive::pin",
+                    "Make available offline"
+                    if len(unpinned) == 1
+                    else f"Make {len(unpinned)} items available offline",
+                    self._on_pin,
+                    unpinned,
+                )
             )
-            item.connect("activate", self._on_pin, unpinned)
-            children.append(item)
 
         if pinned:
-            item = Nautilus.MenuItem(
-                name="OmgeeDrive::unpin",
-                label="Free up space"
-                if len(pinned) == 1
-                else f"Free space for {len(pinned)} items",
-                icon=icon,
+            children.append(
+                _menu_item(
+                    "OmgeeDrive::unpin",
+                    "Free up space"
+                    if len(pinned) == 1
+                    else f"Free space for {len(pinned)} items",
+                    self._on_unpin,
+                    pinned,
+                )
             )
-            item.connect("activate", self._on_unpin, pinned)
-            children.append(item)
 
         if watchable:
-            item = Nautilus.MenuItem(
-                name="OmgeeDrive::ignore",
-                label="Ignore"
-                if len(watchable) == 1
-                else f"Ignore {len(watchable)} items",
-                icon=icon,
+            children.append(
+                _menu_item(
+                    "OmgeeDrive::ignore",
+                    "Ignore" if len(watchable) == 1 else f"Ignore {len(watchable)} items",
+                    self._on_ignore,
+                    watchable,
+                )
             )
-            item.connect("activate", self._on_ignore, watchable)
-            children.append(item)
 
         if ignored:
-            item = Nautilus.MenuItem(
-                name="OmgeeDrive::unignore",
-                label="Stop ignoring"
-                if len(ignored) == 1
-                else f"Stop ignoring {len(ignored)} items",
-                icon=icon,
+            children.append(
+                _menu_item(
+                    "OmgeeDrive::unignore",
+                    "Stop ignoring"
+                    if len(ignored) == 1
+                    else f"Stop ignoring {len(ignored)} items",
+                    self._on_unignore,
+                    ignored,
+                )
             )
-            item.connect("activate", self._on_unignore, ignored)
-            children.append(item)
 
         if stubs:
-            item = Nautilus.MenuItem(
-                name="OmgeeDrive::open",
-                label="Open in browser"
-                if len(stubs) == 1
-                else f"Open {len(stubs)} shortcuts in browser",
-                icon=icon,
+            children.append(
+                _menu_item(
+                    "OmgeeDrive::open",
+                    "Open in browser"
+                    if len(stubs) == 1
+                    else f"Open {len(stubs)} shortcuts in browser",
+                    self._on_open,
+                    stubs,
+                )
             )
-            item.connect("activate", self._on_open, stubs)
-            children.append(item)
 
         if not children:
             return []
@@ -417,9 +440,11 @@ class OmgeeDriveExtension(
             submenu.append_item(child)
         parent = Nautilus.MenuItem(
             name="OmgeeDrive::root",
-            label="OMGee Drive",
-            icon=icon,
+            label=f"{_MENU_MARK}  OMGee Drive",
+            tip="Google Drive folder actions",
+            icon=_MENU_ICON,
         )
+        parent.set_property("priority", True)
         parent.set_submenu(submenu)
         return [parent]
 
