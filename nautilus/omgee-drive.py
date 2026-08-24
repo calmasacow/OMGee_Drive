@@ -13,9 +13,21 @@ require_version("Nautilus", "4.1")
 
 from gi.repository import Gio, GObject, Nautilus  # noqa: E402
 
-_LIB = Path.home() / ".local" / "lib" / "omgee-drive"
-if _LIB.exists() and str(_LIB) not in sys.path:
-    sys.path.insert(0, str(_LIB))
+def _ensure_omgee_on_path() -> None:
+    candidates = [
+        Path.home() / ".local" / "lib" / "omgee-drive",
+        Path.home() / ".local" / "lib" / "omgee-drive" / "OMGee_Drive",
+        Path.home() / "Projects" / "OMGee_Drive",
+    ]
+    for root in candidates:
+        if (root / "omgee_drive" / "status.py").exists():
+            resolved = str(root.resolve())
+            if resolved not in sys.path:
+                sys.path.insert(0, resolved)
+            return
+
+
+_ensure_omgee_on_path()
 
 try:
     from omgee_drive.status import emblem_for, is_pinned_rel, is_stub as _is_stub
@@ -71,10 +83,92 @@ def _stub(path: Path) -> bool:
     return path.suffix.lower() in STUB_SUFFIXES
 
 
+EMBLEMS = {
+    "ok": "emblem-omgee-ok",
+    "sync": "emblem-omgee-sync",
+    "cloud": "emblem-omgee-cloud",
+    "error": "emblem-omgee-error",
+    "web": "emblem-omgee-web",
+}
+LABELS = {
+    "ok": "Available offline",
+    "sync": "Syncing",
+    "cloud": "Online only",
+    "error": "Sync error",
+    "web": "Opens in browser",
+}
+
+
+def _read_json(path: Path, fallback):
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return fallback
+
+
+def _covered(rel: str, items) -> bool:
+    rel = (rel or "").strip("/")
+    bag = {str(x).strip("/") for x in items}
+    if rel in bag:
+        return True
+    parts = rel.split("/")
+    for i in range(1, len(parts)):
+        if "/".join(parts[:i]) in bag:
+            return True
+    return False
+
+
+def _pins() -> set[str]:
+    data = _read_json(Path.home() / ".local" / "share" / "omgee-drive" / "pins.json", {})
+    return {str(p).strip("/") for p in data.get("paths") or []}
+
+
+def _status_blob() -> dict:
+    data = _read_json(Path.home() / ".local" / "share" / "omgee-drive" / "status.json", {})
+    return {
+        "syncing": list(data.get("syncing") or []),
+        "errors": dict(data.get("errors") or {}),
+    }
+
+
+def _local_status(rel: str, path: Path) -> str:
+    if _stub(path):
+        return "web"
+    blob = _status_blob()
+    if rel in blob["errors"] or _covered(rel, blob["errors"].keys()):
+        return "error"
+    if _covered(rel, blob["syncing"]):
+        return "sync"
+    if _covered(rel, _pins()):
+        return "ok"
+    return "cloud"
+
+
+def _emblem(rel: str, path: Path) -> str:
+    if emblem_for is not None:
+        try:
+            return emblem_for(rel, path)
+        except Exception:
+            pass
+    return EMBLEMS[_local_status(rel, path)]
+
+
+def _label(rel: str, path: Path) -> str:
+    if label_for is not None:
+        try:
+            return label_for(rel, path)
+        except Exception:
+            pass
+    return LABELS[_local_status(rel, path)]
+
+
 def _pinned(rel: str) -> bool:
-    if is_pinned_rel is None:
-        return False
-    return is_pinned_rel(rel)
+    if is_pinned_rel is not None:
+        try:
+            return is_pinned_rel(rel)
+        except Exception:
+            pass
+    return _covered(rel, _pins())
 
 
 class OmgeeDriveExtension(
@@ -137,27 +231,23 @@ class OmgeeDriveExtension(
             )
         ]
 
-    def update_file_info(self, file):
-        if emblem_for is None:
-            return
+    def update_file_info(self, file, *args):
         location = file.get_location()
         if not location:
-            return
+            return Nautilus.OperationResult.COMPLETE
         raw = location.get_path()
         if not raw:
-            return
-        mount = _mount_point()
+            return Nautilus.OperationResult.COMPLETE
         path = Path(raw)
-        rel = _rel(path, mount)
+        rel = _rel(path, _mount_point())
         if rel is None:
-            return
+            return Nautilus.OperationResult.COMPLETE
         try:
-            emblem = emblem_for(rel, path)
-            label = label_for(rel, path)
+            file.add_emblem(_emblem(rel, path))
+            file.add_string_attribute("omgee_status", _label(rel, path))
         except Exception:
-            return
-        file.add_emblem(emblem)
-        file.add_string_attribute("omgee_status", label)
+            return Nautilus.OperationResult.FAILED
+        return Nautilus.OperationResult.COMPLETE
 
     def get_file_items(self, *args):
         files = args[0] if len(args) == 1 else args[1]
