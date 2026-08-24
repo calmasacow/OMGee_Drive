@@ -59,6 +59,23 @@ def has_token() -> bool:
     return "token" in text and "access_token" in text
 
 
+def stat(remote: str) -> dict | None:
+    proc = run(["lsjson", remote, "--stat"], check=False)
+    if proc.returncode != 0 or not (proc.stdout or "").strip():
+        return None
+    data = json.loads(proc.stdout)
+    if isinstance(data, list):
+        return data[0] if data else None
+    if isinstance(data, dict):
+        return data
+    return None
+
+
+def reachable(remote: str) -> bool:
+    proc = run(["lsf", remote, "--max-depth", "1"], check=False)
+    return proc.returncode == 0
+
+
 def lsjson(remote: str, extra: list[str] | None = None) -> list[dict]:
     args = [
         "lsjson",

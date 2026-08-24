@@ -51,6 +51,15 @@ if [[ ! -f "${HOME}/.config/omgee-drive/config.json" ]]; then
 }
 EOF
 fi
+if [[ ! -f "${HOME}/.config/omgee-drive/ignore" ]]; then
+  cat > "${HOME}/.config/omgee-drive/ignore" <<'EOF'
+# One glob per line. Matches the Drive-relative path or the filename.
+# Examples:
+#   *.tmp
+#   Desktop.ini
+#   Secret/**
+EOF
+fi
 mkdir -p "${HOME}/GoogleDrive"
 
 if command -v update-mime-database >/dev/null; then

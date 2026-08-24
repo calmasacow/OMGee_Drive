@@ -30,13 +30,15 @@ def _ensure_omgee_on_path() -> None:
 _ensure_omgee_on_path()
 
 try:
-    from omgee_drive.status import emblem_for, is_pinned_rel, is_stub as _is_stub
+    from omgee_drive.status import emblems_for, is_pinned_rel, is_stub as _is_stub
+    from omgee_drive.status import is_ignored as _is_ignored
     from omgee_drive.status import label_for
 except Exception:  # noqa: BLE001 — keep the menu working if imports fail
-    emblem_for = None
+    emblems_for = None
     label_for = None
     _is_stub = None
     is_pinned_rel = None
+    _is_ignored = None
 
 STUB_SUFFIXES = {
     ".gdoc",
@@ -89,6 +91,10 @@ EMBLEMS = {
     "cloud": "emblem-omgee-cloud",
     "error": "emblem-omgee-error",
     "web": "emblem-omgee-web",
+    "conflict": "emblem-omgee-conflict",
+    "paused": "emblem-omgee-paused",
+    "shared": "emblem-omgee-shared",
+    "ignored": "emblem-omgee-ignored",
 }
 LABELS = {
     "ok": "Available offline",
@@ -96,6 +102,9 @@ LABELS = {
     "cloud": "Online only",
     "error": "Sync error",
     "web": "Opens in browser",
+    "conflict": "Conflict",
+    "paused": "Offline",
+    "ignored": "Ignored",
 }
 
 
@@ -128,29 +137,54 @@ def _status_blob() -> dict:
     return {
         "syncing": list(data.get("syncing") or []),
         "errors": dict(data.get("errors") or {}),
+        "conflicts": dict(data.get("conflicts") or {}),
+        "ignored": list(data.get("ignored") or []),
+        "shared": list(data.get("shared") or []),
+        "offline": bool(data.get("offline")),
     }
 
 
+def _ignored(rel: str) -> bool:
+    if _is_ignored is not None:
+        try:
+            return _is_ignored(rel)
+        except Exception:
+            pass
+    return _covered(rel, _status_blob()["ignored"])
+
+
 def _local_status(rel: str, path: Path) -> str:
-    if _stub(path):
-        return "web"
     blob = _status_blob()
+    if _ignored(rel):
+        return "ignored"
     if rel in blob["errors"] or _covered(rel, blob["errors"].keys()):
         return "error"
+    if rel in blob["conflicts"] or _covered(rel, blob["conflicts"].keys()):
+        return "conflict"
+    if _stub(path):
+        return "paused" if blob["offline"] else "web"
     if _covered(rel, blob["syncing"]):
-        return "sync"
+        return "paused" if blob["offline"] else "sync"
     if _covered(rel, _pins()):
         return "ok"
+    if blob["offline"]:
+        return "paused"
     return "cloud"
 
 
-def _emblem(rel: str, path: Path) -> str:
-    if emblem_for is not None:
+def _emblems(rel: str, path: Path) -> list[str]:
+    if emblems_for is not None:
         try:
-            return emblem_for(rel, path)
+            return emblems_for(rel, path)
         except Exception:
             pass
-    return EMBLEMS[_local_status(rel, path)]
+    names = [EMBLEMS[_local_status(rel, path)]]
+    blob = _status_blob()
+    if _local_status(rel, path) not in ("ignored", "paused") and _covered(
+        rel, blob["shared"]
+    ):
+        names.append(EMBLEMS["shared"])
+    return names
 
 
 def _label(rel: str, path: Path) -> str:
@@ -243,7 +277,8 @@ class OmgeeDriveExtension(
         if rel is None:
             return Nautilus.OperationResult.COMPLETE
         try:
-            file.add_emblem(_emblem(rel, path))
+            for name in _emblems(rel, path):
+                file.add_emblem(name)
             file.add_string_attribute("omgee_status", _label(rel, path))
         except Exception:
             return Nautilus.OperationResult.FAILED
@@ -274,14 +309,42 @@ class OmgeeDriveExtension(
 
         pinned = []
         unpinned = []
+        ignored = []
+        watchable = []
         for pair in rest:
             rel = _rel(pair[1], _mount_point())
             if rel is None:
                 continue
+            if _ignored(rel):
+                ignored.append(pair)
+                continue
+            watchable.append(pair)
             if _pinned(rel):
                 pinned.append(pair)
             else:
                 unpinned.append(pair)
+
+        if watchable:
+            item = Nautilus.MenuItem(
+                name="OmgeeDrive::ignore",
+                label="Ignore"
+                if len(watchable) == 1
+                else f"Ignore {len(watchable)} items",
+                icon="list-remove",
+            )
+            item.connect("activate", self._on_ignore, watchable)
+            items.append(item)
+
+        if ignored:
+            item = Nautilus.MenuItem(
+                name="OmgeeDrive::unignore",
+                label="Stop ignoring"
+                if len(ignored) == 1
+                else f"Stop ignoring {len(ignored)} items",
+                icon="list-add",
+            )
+            item.connect("activate", self._on_unignore, ignored)
+            items.append(item)
 
         if unpinned:
             item = Nautilus.MenuItem(
@@ -312,6 +375,12 @@ class OmgeeDriveExtension(
 
     def _on_unpin(self, _menu, pairs):
         self._run("unpin", pairs)
+
+    def _on_ignore(self, _menu, pairs):
+        self._run("ignore", pairs)
+
+    def _on_unignore(self, _menu, pairs):
+        self._run("unignore", pairs)
 
     def _on_open(self, _menu, pairs):
         binary = self._omgee()

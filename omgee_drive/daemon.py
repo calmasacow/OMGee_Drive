@@ -5,11 +5,14 @@ import subprocess
 import sys
 import threading
 
+from pathlib import Path
+
 from omgee_drive import config as cfg
 from omgee_drive import pins
 from omgee_drive import rclone
+from omgee_drive import status as st
 from omgee_drive import stubs
-from omgee_drive.paths import REMOTE_UNION, ensure_dirs
+from omgee_drive.paths import REMOTE_DRIVE, REMOTE_UNION, ensure_dirs
 
 
 _stop = threading.Event()
@@ -81,8 +84,17 @@ def run() -> None:
         args=("pins", int(conf["pin_sync_sec"]), pins.sync_pins),
         daemon=True,
     )
+    def check_link():
+        st.set_offline(not rclone.reachable(f"{REMOTE_DRIVE}:"))
+
+    link_thread = threading.Thread(
+        target=_loop,
+        args=("link", 60, check_link),
+        daemon=True,
+    )
     stub_thread.start()
     pin_thread.start()
+    link_thread.start()
 
     assert _mount_proc is not None
     rc = _mount_proc.wait()

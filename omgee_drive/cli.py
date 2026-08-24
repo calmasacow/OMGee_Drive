@@ -12,6 +12,7 @@ from omgee_drive import daemon
 from omgee_drive import pins
 from omgee_drive import rclone
 from omgee_drive import setup as setup_mod
+from omgee_drive import status as st
 from omgee_drive import stubs
 from omgee_drive.paths import LOCAL_DIR, RCLONE_CONF
 
@@ -52,6 +53,10 @@ def cmd_status(_args: argparse.Namespace) -> None:
     print(f"mount:       {mount}")
     print(f"local pins:  {LOCAL_DIR}")
     print(f"pins:        {len(pins.load_pins())}")
+    blob = st.load()
+    print(f"offline:     {blob['offline']}")
+    print(f"ignored:     {len(blob['ignored'])}")
+    print(f"conflicts:   {len(blob['conflicts'])}")
     mounted = mount.exists() and mount.is_mount()
     print(f"mounted:     {mounted}")
     subprocess.run(["systemctl", "--user", "is-active", "omgee-drive.service"])
@@ -92,6 +97,27 @@ def cmd_open(args: argparse.Namespace) -> None:
     if not path.exists():
         raise SystemExit(f"No such file: {path}")
     subprocess.run(["xdg-open", str(path)], check=False)
+
+
+def cmd_ignore(args: argparse.Namespace) -> None:
+    paths = [Path(p) for p in args.paths]
+    for path in paths:
+        st.ignore(pins.rel_from_user_path(path))
+    pins.unpin(paths)
+    msg = f"Ignored {len(paths)} item(s)"
+    print(msg)
+    if args.notify:
+        _notify("OMGee Drive", msg)
+
+
+def cmd_unignore(args: argparse.Namespace) -> None:
+    paths = [Path(p) for p in args.paths]
+    for path in paths:
+        st.unignore(pins.rel_from_user_path(path))
+    msg = f"Stopped ignoring {len(paths)} item(s)"
+    print(msg)
+    if args.notify:
+        _notify("OMGee Drive", msg)
 
 
 def cmd_refresh(_args: argparse.Namespace) -> None:
@@ -146,6 +172,16 @@ def build_parser() -> argparse.ArgumentParser:
     open_p = sub.add_parser("open", help="Open a .gdoc/.gsheet shortcut in the browser")
     open_p.add_argument("path")
     open_p.set_defaults(func=cmd_open)
+
+    ign = sub.add_parser("ignore", help="Stop syncing a path (still visible online)")
+    ign.add_argument("paths", nargs="+")
+    ign.add_argument("--notify", action="store_true")
+    ign.set_defaults(func=cmd_ignore)
+
+    unign = sub.add_parser("unignore", help="Start considering a path for pin/sync again")
+    unign.add_argument("paths", nargs="+")
+    unign.add_argument("--notify", action="store_true")
+    unign.set_defaults(func=cmd_unignore)
     return p
 
 

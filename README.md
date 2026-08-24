@@ -14,8 +14,7 @@ Not affiliated with Google. There is no official Drive for Desktop on Linux; thi
 
 **What you do not get**
 
-- Overlay badges on every icon
-- Shared drives / “Shared with me” as extra roots (My Drive only, v1)
+- Shared drives / “Shared with me” as extra roots (My Drive only)
 - Google treating this as an official app
 
 ## Install (Omarchy)
@@ -43,14 +42,18 @@ Nautilus draws a small overlay on each item in `~/GoogleDrive`:
 | Badge | Means |
 |---|---|
 | Cloud | Online only — listed, not kept on disk |
-| Circular arrows | Syncing or queued (download / upload / pin in progress) |
+| Circular arrows | Syncing or queued |
 | Green check | Available offline and current |
+| Orange warning | Conflict — you and Drive both changed the file |
+| Gray pause | Drive unreachable (laptop offline) |
+| Gray slashed circle | Ignored — will not pin or sync |
 | Red ! | Last pin/sync failed |
-| Blue link | Google Doc / Sheet / Slide shortcut (opens in the browser) |
+| Blue link | Docs / Sheets / Slides shortcut (opens in the browser) |
+| Blue people | Shared with someone else (extra badge next to the primary state) |
 
-Queued and actively transferring share the arrows on purpose — one glance, “not settled yet.” List view also has a **Drive** column with the same words.
+Queued and transferring share the arrows. Shared stacks with check/cloud/error. List view has a **Drive** column with the same words.
 
-Not in v1 (easy to add later): conflict vs generic error, “shared with others,” paused because the laptop is offline.
+Right-click **Ignore** to stop syncing a path (globs also go in `~/.config/omgee-drive/ignore`). Conflict skips overwrite until you free space and pin again, or edit only one side.
 
 ### Your own OAuth client (recommended)
 
@@ -68,6 +71,7 @@ omgee-drive setup --client-id YOUR_ID.apps.googleusercontent.com --client-secret
 | Open a PDF / photo / zip | Double-click (downloads on demand, then opens) |
 | Keep a file/folder on disk | Right-click → **Make available offline** |
 | Evict local bytes | Right-click → **Free up space** |
+| Stop syncing a path | Right-click → **Ignore** |
 | Open a Doc/Sheet | Double-click the shortcut (browser) |
 | CLI pin | `omgee-drive pin ~/GoogleDrive/Invoices` |
 | Refresh badges | `F5` in Nautilus, or `nautilus -q` |

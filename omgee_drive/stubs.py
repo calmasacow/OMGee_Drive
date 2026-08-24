@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 
 from omgee_drive import rclone
+from omgee_drive import status as st
 from omgee_drive.paths import LOCAL_DIR, REMOTE_DRIVE, STUB_MIME, STUB_SUFFIXES, ensure_dirs
 
 STUB_MARKER = "omgee"
@@ -54,24 +55,65 @@ def read_stub(path: Path) -> dict | None:
     return data
 
 
+def _item_shared(item: dict) -> bool:
+    md = item.get("Metadata") or {}
+    if str(md.get("shared", "")).lower() == "true":
+        return True
+    raw = md.get("permissions")
+    if not raw:
+        return False
+    try:
+        perms = json.loads(raw) if isinstance(raw, str) else raw
+    except json.JSONDecodeError:
+        return False
+    if not isinstance(perms, list):
+        return False
+    extras = [
+        p
+        for p in perms
+        if isinstance(p, dict) and p.get("role") not in (None, "owner")
+    ]
+    return len(perms) > 1 or bool(extras)
+
+
 def refresh() -> tuple[int, int]:
-    """Create/update stubs for Google editor files. Returns (written, removed)."""
+    """Create/update stubs and refresh shared metadata."""
     ensure_dirs()
-    items = rclone.lsjson(
-        f"{REMOTE_DRIVE}:",
-        extra=["--drive-skip-gdocs=false", "--drive-show-all-gdocs"],
-    )
+    try:
+        items = rclone.lsjson(
+            f"{REMOTE_DRIVE}:",
+            extra=[
+                "--drive-skip-gdocs=false",
+                "--drive-show-all-gdocs",
+                "--metadata",
+                "--drive-metadata-permissions=read",
+            ],
+        )
+        st.set_offline(False)
+    except rclone.RcloneError:
+        st.set_offline(True)
+        return 0, 0
+
     keep: set[Path] = set()
     written = 0
+    shared: list[str] = []
     for item in items:
-        if not (item.get("MimeType") or "").startswith("application/vnd.google-apps."):
+        path = (item.get("Path") or "").strip("/")
+        stub = stub_relpath(item)
+        catalog = stub or path
+        if catalog and _item_shared(item):
+            shared.append(catalog)
+        mime = item.get("MimeType") or ""
+        if not mime.startswith("application/vnd.google-apps."):
             continue
-        if item.get("MimeType") == "application/vnd.google-apps.folder":
+        if mime == "application/vnd.google-apps.folder":
             continue
         dest = write_stub(item)
         if dest:
             keep.add(dest.resolve())
             written += 1
+
+    st.set_shared(shared)
 
     removed = 0
     if LOCAL_DIR.exists():

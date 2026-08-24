@@ -77,6 +77,8 @@ def pin(paths: list[Path]) -> list[str]:
         rel = rel_from_user_path(path)
         if is_stub(path) or is_stub(local_path(rel)):
             continue
+        if st.is_ignored(rel):
+            continue
         jobs.append((rel, path))
         if rel not in pins:
             pins.append(rel)
@@ -90,6 +92,7 @@ def pin(paths: list[Path]) -> list[str]:
             st.mark_error(rel, str(exc))
             continue
         st.mark_ok(rel)
+        _record(rel, local_path(rel))
         added.append(rel)
     return added
 
@@ -110,6 +113,7 @@ def unpin(paths: list[Path]) -> list[str]:
             else:
                 target.unlink()
         st.clear_rel(rel)
+        st.drop_sync_record(rel)
     save_pins(remaining)
     return removed
 
@@ -136,22 +140,67 @@ def _rmtree_keep_stubs(root: Path) -> None:
         root.rmdir()
 
 
+def _record(rel: str, local: Path) -> None:
+    remote = rclone.stat(f"{REMOTE_DRIVE}:{rel}")
+    local_mtime = None
+    if local.exists() and local.is_file():
+        local_mtime = local.stat().st_mtime_ns
+    st.record_sync(rel, local_mtime, (remote or {}).get("ModTime"))
+
+
+def _has_conflict(rel: str, local: Path) -> bool:
+    if not local.is_file():
+        return False
+    saved = st.load_sync_index().get(rel) or {}
+    if not saved:
+        return False
+    remote = rclone.stat(f"{REMOTE_DRIVE}:{rel}")
+    remote_now = (remote or {}).get("ModTime")
+    local_now = local.stat().st_mtime_ns
+    local_changed = (
+        saved.get("local_mtime") is not None and local_now != saved.get("local_mtime")
+    )
+    remote_changed = bool(
+        saved.get("remote_mtime") and remote_now and remote_now != saved.get("remote_mtime")
+    )
+    return bool(local_changed and remote_changed)
+
+
 def sync_pins() -> None:
     """Keep pinned files in both directions. Stubs never upload."""
     excludes = []
     for glob in STUB_EXCLUDE_GLOBS:
         excludes.extend(["--exclude", glob])
     for rel in load_pins():
+        if st.is_ignored(rel):
+            continue
         src = f"{REMOTE_DRIVE}:{rel}"
         dest = f"{REMOTE_LOCAL}:{rel}"
         local = local_path(rel)
         try:
+            if _has_conflict(rel, local):
+                st.mark_conflict(rel)
+                continue
             if local.is_dir() or not local.exists():
                 rclone.copy_tree(src, dest, extra=["--update"])
                 rclone.copy_tree(dest, src, extra=["--update", *excludes])
             else:
                 rclone.run(["copyto", src, dest, "--update"], check=True)
                 rclone.run(["copyto", dest, src, "--update"], check=True)
-        except rclone.RcloneError:
-            # Offline or path vanished — leave the local pin alone.
+            st.mark_ok(rel)
+            _record(rel, local)
+        except rclone.RcloneError as exc:
+            msg = str(exc).lower()
+            if any(
+                token in msg
+                for token in (
+                    "couldn't connect",
+                    "network is unreachable",
+                    "i/o timeout",
+                    "temporary failure",
+                    "no route to host",
+                    "connection refused",
+                )
+            ):
+                st.set_offline(True)
             continue

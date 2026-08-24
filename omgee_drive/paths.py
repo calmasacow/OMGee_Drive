@@ -13,6 +13,8 @@ CONFIG_FILE = CONFIG_DIR / "config.json"
 RCLONE_CONF = CONFIG_DIR / "rclone.conf"
 PINS_FILE = DATA_DIR / "pins.json"
 STATUS_FILE = DATA_DIR / "status.json"
+IGNORE_FILE = CONFIG_DIR / "ignore"
+SYNC_INDEX_FILE = DATA_DIR / "sync-index.json"
 
 DEFAULT_MOUNT = Path.home() / "GoogleDrive"
 
