@@ -52,7 +52,7 @@ def write_overlay_remotes() -> None:
         block = (
             f"\n[{REMOTE_UNION}]\n"
             f"type = union\n"
-            f"upstreams = {REMOTE_LOCAL}: :nc {REMOTE_DRIVE}:\n"
+            f"upstreams = {REMOTE_LOCAL}::nc {REMOTE_DRIVE}:\n"
             f"search_policy = ff\n"
             f"create_policy = epff\n"
             f"action_policy = epff\n"

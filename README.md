@@ -67,7 +67,7 @@ omgee-drive refresh-stubs
 rclone mounts a **union**:
 
 1. `omgee-gdrive` — your Drive, with Google editor files skipped so they are not fake `.docx` exports
-2. `omgee-local` — `~/.local/share/omgee-drive/local/`
+2. `omgee-local` (`:nc`) — `~/.local/share/omgee-drive/local/` (no-create overlay so new files upload to Drive)
    - shortcut stubs for Docs/Sheets/…
    - full copies of anything you pinned
 
