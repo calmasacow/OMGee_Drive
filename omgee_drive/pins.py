@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 
 from omgee_drive import rclone
+from omgee_drive import status as st
 from omgee_drive.paths import (
     LOCAL_DIR,
     PINS_FILE,
@@ -71,16 +72,25 @@ def local_path(rel: str) -> Path:
 def pin(paths: list[Path]) -> list[str]:
     ensure_dirs()
     pins = load_pins()
-    added: list[str] = []
+    jobs: list[tuple[str, Path]] = []
     for path in paths:
         rel = rel_from_user_path(path)
         if is_stub(path) or is_stub(local_path(rel)):
             continue
+        jobs.append((rel, path))
         if rel not in pins:
             pins.append(rel)
-            added.append(rel)
-        _hydrate(rel, path)
+        st.mark_syncing(rel)
     save_pins(pins)
+    added: list[str] = []
+    for rel, path in jobs:
+        try:
+            _hydrate(rel, path)
+        except Exception as exc:  # noqa: BLE001 — surface per-file, keep going
+            st.mark_error(rel, str(exc))
+            continue
+        st.mark_ok(rel)
+        added.append(rel)
     return added
 
 
@@ -99,6 +109,7 @@ def unpin(paths: list[Path]) -> list[str]:
                 _rmtree_keep_stubs(target)
             else:
                 target.unlink()
+        st.clear_rel(rel)
     save_pins(remaining)
     return removed
 

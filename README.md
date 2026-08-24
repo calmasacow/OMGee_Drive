@@ -10,6 +10,7 @@ Not affiliated with Google. There is no official Drive for Desktop on Linux; thi
 - Right-click **Make available offline** — real bytes on disk, still work if you are on a plane
 - Right-click **Free up space** — drop the local copy, the file stays in Drive
 - Docs / Sheets / Slides / Forms are **shortcuts** (`.gdoc`, `.gsheet`, …) that open in the browser, the same idea as Drive for Desktop on Windows/Mac
+- Nautilus overlay badges for sync state (see below)
 
 **What you do not get**
 
@@ -33,7 +34,23 @@ Restart Nautilus once so the right-click items appear:
 nautilus -q
 ```
 
-Then open `~/GoogleDrive`.
+Then open `~/GoogleDrive`. If overlays are missing, restart Files (`nautilus -q`) so it reloads emblems.
+
+## Status badges
+
+Nautilus draws a small overlay on each item in `~/GoogleDrive`:
+
+| Badge | Means |
+|---|---|
+| Cloud | Online only — listed, not kept on disk |
+| Circular arrows | Syncing or queued (download / upload / pin in progress) |
+| Green check | Available offline and current |
+| Red ! | Last pin/sync failed |
+| Blue link | Google Doc / Sheet / Slide shortcut (opens in the browser) |
+
+Queued and actively transferring share the arrows on purpose — one glance, “not settled yet.” List view also has a **Drive** column with the same words.
+
+Not in v1 (easy to add later): conflict vs generic error, “shared with others,” paused because the laptop is offline.
 
 ### Your own OAuth client (recommended)
 
@@ -53,6 +70,7 @@ omgee-drive setup --client-id YOUR_ID.apps.googleusercontent.com --client-secret
 | Evict local bytes | Right-click → **Free up space** |
 | Open a Doc/Sheet | Double-click the shortcut (browser) |
 | CLI pin | `omgee-drive pin ~/GoogleDrive/Invoices` |
+| Refresh badges | `F5` in Nautilus, or `nautilus -q` |
 
 The systemd user unit `omgee-drive.service` remounts after login.
 

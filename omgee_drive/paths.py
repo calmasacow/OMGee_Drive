@@ -12,6 +12,7 @@ LOCAL_DIR = DATA_DIR / "local"
 CONFIG_FILE = CONFIG_DIR / "config.json"
 RCLONE_CONF = CONFIG_DIR / "rclone.conf"
 PINS_FILE = DATA_DIR / "pins.json"
+STATUS_FILE = DATA_DIR / "status.json"
 
 DEFAULT_MOUNT = Path.home() / "GoogleDrive"
 

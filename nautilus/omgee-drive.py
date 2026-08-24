@@ -1,10 +1,10 @@
-"""Nautilus right-click: Make available offline / Free up space."""
+"""Nautilus: overlay emblems + Make available offline / Free up space."""
 
 from __future__ import annotations
 
 import json
 import shutil
-import subprocess
+import sys
 from pathlib import Path
 
 from gi import require_version
@@ -12,6 +12,19 @@ from gi import require_version
 require_version("Nautilus", "4.1")
 
 from gi.repository import Gio, GObject, Nautilus  # noqa: E402
+
+_LIB = Path.home() / ".local" / "lib" / "omgee-drive"
+if _LIB.exists() and str(_LIB) not in sys.path:
+    sys.path.insert(0, str(_LIB))
+
+try:
+    from omgee_drive.status import emblem_for, is_pinned_rel, is_stub as _is_stub
+    from omgee_drive.status import label_for
+except Exception:  # noqa: BLE001 — keep the menu working if imports fail
+    emblem_for = None
+    label_for = None
+    _is_stub = None
+    is_pinned_rel = None
 
 STUB_SUFFIXES = {
     ".gdoc",
@@ -38,43 +51,35 @@ def _mount_point() -> Path:
     return Path.home() / "GoogleDrive"
 
 
-def _local_dir() -> Path:
-    return Path.home() / ".local" / "share" / "omgee-drive" / "local"
-
-
-def _pins() -> set[str]:
-    pins_file = Path.home() / ".local" / "share" / "omgee-drive" / "pins.json"
-    if not pins_file.exists():
-        return set()
-    try:
-        return set(json.loads(pins_file.read_text(encoding="utf-8")).get("paths", []))
-    except json.JSONDecodeError:
-        return set()
-
-
 def _rel(path: Path, mount: Path) -> str | None:
     try:
-        return str(path.resolve().relative_to(mount.resolve())).replace("\\", "/")
+        rel = path.relative_to(mount)
     except ValueError:
+        try:
+            rel = path.resolve().relative_to(mount.resolve())
+        except ValueError:
+            return None
+    text = str(rel).replace("\\", "/")
+    if text in (".", ""):
         return None
+    return text
 
 
-def _is_stub(path: Path) -> bool:
+def _stub(path: Path) -> bool:
+    if _is_stub is not None:
+        return _is_stub(path)
     return path.suffix.lower() in STUB_SUFFIXES
 
 
-def _is_pinned(rel: str, pinset: set[str]) -> bool:
-    if rel in pinset:
-        return True
-    parts = rel.split("/")
-    for i in range(1, len(parts)):
-        if "/".join(parts[:i]) in pinset:
-            return True
-    local = _local_dir() / rel
-    return local.exists() and not _is_stub(local)
+def _pinned(rel: str) -> bool:
+    if is_pinned_rel is None:
+        return False
+    return is_pinned_rel(rel)
 
 
-class OmgeeDriveMenu(GObject.GObject, Nautilus.MenuProvider):
+class OmgeeDriveExtension(
+    GObject.GObject, Nautilus.MenuProvider, Nautilus.InfoProvider, Nautilus.ColumnProvider
+):
     def _omgee(self) -> str | None:
         found = shutil.which("omgee-drive")
         if found:
@@ -89,36 +94,81 @@ class OmgeeDriveMenu(GObject.GObject, Nautilus.MenuProvider):
             location = file.get_location()
             if not location:
                 continue
-            path = location.get_path()
-            if not path:
+            raw = location.get_path()
+            if not raw:
                 continue
-            p = Path(path)
+            p = Path(raw)
             if _rel(p, mount) is None:
                 continue
-            paths.append(p)
+            paths.append((file, p))
         return paths
 
-    def _run(self, subcmd: str, paths: list[Path]):
+    def _run(self, subcmd: str, files_and_paths):
         binary = self._omgee()
         if not binary:
             return
-        Gio.Subprocess.new(
-            [binary, subcmd, "--notify", *[str(p) for p in paths]],
+        files = [pair[0] for pair in files_and_paths]
+        paths = [str(pair[1]) for pair in files_and_paths]
+        proc = Gio.Subprocess.new(
+            [binary, subcmd, "--notify", *paths],
             Gio.SubprocessFlags.NONE,
         )
+
+        def _done(subprocess, result):
+            try:
+                subprocess.wait_finish(result)
+            except Exception:
+                pass
+            for file in files:
+                try:
+                    file.invalidate_extension_info()
+                except Exception:
+                    pass
+
+        proc.wait_async(None, _done)
+
+    def get_columns(self):
+        return [
+            Nautilus.Column(
+                name="OmgeeDrive::status",
+                attribute="omgee_status",
+                label="Drive",
+                description="OMGee Drive status",
+            )
+        ]
+
+    def update_file_info(self, file):
+        if emblem_for is None:
+            return
+        location = file.get_location()
+        if not location:
+            return
+        raw = location.get_path()
+        if not raw:
+            return
+        mount = _mount_point()
+        path = Path(raw)
+        rel = _rel(path, mount)
+        if rel is None:
+            return
+        try:
+            emblem = emblem_for(rel, path)
+            label = label_for(rel, path)
+        except Exception:
+            return
+        file.add_emblem(emblem)
+        file.add_string_attribute("omgee_status", label)
 
     def get_file_items(self, *args):
         files = args[0] if len(args) == 1 else args[1]
         if not self._omgee():
             return []
-        paths = self._selected(files)
-        if not paths:
+        selected = self._selected(files)
+        if not selected:
             return []
 
-        mount = _mount_point()
-        pinset = _pins()
-        stubs = [p for p in paths if _is_stub(p)]
-        rest = [p for p in paths if p not in stubs]
+        stubs = [pair for pair in selected if _stub(pair[1])]
+        rest = [pair for pair in selected if pair not in stubs]
         items = []
 
         if stubs:
@@ -134,14 +184,14 @@ class OmgeeDriveMenu(GObject.GObject, Nautilus.MenuProvider):
 
         pinned = []
         unpinned = []
-        for p in rest:
-            rel = _rel(p, mount)
+        for pair in rest:
+            rel = _rel(pair[1], _mount_point())
             if rel is None:
                 continue
-            if _is_pinned(rel, pinset):
-                pinned.append(p)
+            if _pinned(rel):
+                pinned.append(pair)
             else:
-                unpinned.append(p)
+                unpinned.append(pair)
 
         if unpinned:
             item = Nautilus.MenuItem(
@@ -167,17 +217,17 @@ class OmgeeDriveMenu(GObject.GObject, Nautilus.MenuProvider):
 
         return items
 
-    def _on_pin(self, _menu, paths):
-        self._run("pin", paths)
+    def _on_pin(self, _menu, pairs):
+        self._run("pin", pairs)
 
-    def _on_unpin(self, _menu, paths):
-        self._run("unpin", paths)
+    def _on_unpin(self, _menu, pairs):
+        self._run("unpin", pairs)
 
-    def _on_open(self, _menu, paths):
+    def _on_open(self, _menu, pairs):
         binary = self._omgee()
         if not binary:
             return
-        for path in paths:
+        for _file, path in pairs:
             Gio.Subprocess.new(
                 [binary, "open", str(path)], Gio.SubprocessFlags.NONE
             )

@@ -9,8 +9,10 @@ NAUTILUS_DIR="${HOME}/.local/share/nautilus-python/extensions"
 MIME_DIR="${HOME}/.local/share/mime/packages"
 APPS_DIR="${HOME}/.local/share/applications"
 SYSTEMD_DIR="${HOME}/.config/systemd/user"
+EMBLEM_DIR="${HOME}/.local/share/icons/hicolor/scalable/emblems"
 
 mkdir -p "$BIN_DIR" "$LIB_DIR" "$NAUTILUS_DIR" "$MIME_DIR" "$APPS_DIR" "$SYSTEMD_DIR" \
+  "$EMBLEM_DIR" \
   "${HOME}/.config/omgee-drive" \
   "${HOME}/.local/share/omgee-drive/local" \
   "${HOME}/.cache/omgee-drive"
@@ -23,6 +25,12 @@ ln -sfn "$REPO/nautilus/omgee-drive.py" "$NAUTILUS_DIR/omgee-drive.py"
 ln -sfn "$REPO/mime/omgee-drive.xml" "$MIME_DIR/omgee-drive.xml"
 ln -sfn "$REPO/mime/omgee-drive.desktop" "$APPS_DIR/omgee-drive.desktop"
 ln -sfn "$REPO/systemd/omgee-drive.service" "$SYSTEMD_DIR/omgee-drive.service"
+for emblem in "$REPO"/icons/emblem-omgee-*.svg; do
+  ln -sfn "$emblem" "$EMBLEM_DIR/$(basename "$emblem")"
+done
+if command -v gtk-update-icon-cache >/dev/null; then
+  gtk-update-icon-cache -f -t "${HOME}/.local/share/icons/hicolor" >/dev/null 2>&1 || true
+fi
 
 if [[ ! -f "${HOME}/.config/omgee-drive/config.json" ]]; then
   cat > "${HOME}/.config/omgee-drive/config.json" <<EOF
@@ -76,4 +84,5 @@ echo "       omgee-drive start"
 echo
 echo "Your Drive will appear at ~/GoogleDrive"
 echo "Right-click in Nautilus: Make available offline / Free up space"
-echo "Restart Nautilus if the menu is missing:  nautilus -q"
+echo "Overlay badges: cloud = online only, arrows = syncing, green check = offline."
+echo "Restart Nautilus if icons/menu are missing:  nautilus -q"
